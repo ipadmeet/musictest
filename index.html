@@ -2,146 +2,111 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>精密採点カラオケ・プロトタイプ</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IPアドレスと位置情報の表示</title>
     <style>
-        body { font-family: sans-serif; background: #0a0a0a; color: #fff; text-align: center; }
-        .container { max-width: 600px; margin: 50px auto; background: #1a1a1a; padding: 30px; border-radius: 20px; box-shadow: 0 0 20px #ff007b; }
-        #score-container { font-size: 5rem; color: #00ffcc; margin: 20px 0; }
-        #status { color: #ff007b; font-weight: bold; height: 1.5em; }
-        .visual-box { width: 100%; height: 150px; background: #000; position: relative; overflow: hidden; border-radius: 10px; margin: 10px 0; }
-        #pitch-indicator { width: 100%; height: 4px; background: #333; position: absolute; top: 50%; }
-        #user-pitch { width: 10px; height: 10px; background: #fff; border-radius: 50%; position: absolute; left: 50%; transition: top 0.1s; }
-        button { padding: 15px 30px; font-size: 1.2rem; cursor: pointer; background: #ff007b; border: none; color: white; border-radius: 50px; }
-        input[type="file"] { margin: 20px 0; }
+        body {
+            font-family: 'Helvetica Neue', Arial, sans-serif;
+            background-color: #f4f7f6;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+        }
+        .container {
+            background-color: #fff;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            max-width: 400px;
+            width: 100%;
+        }
+        h1 {
+            font-size: 20px;
+            color: #333;
+            margin-bottom: 20px;
+            text-align: center;
+            border-bottom: 2px solid #007BFF;
+            padding-bottom: 10px;
+        }
+        .info-group {
+            margin-bottom: 15px;
+        }
+        .label {
+            font-weight: bold;
+            color: #666;
+            font-size: 14px;
+            display: block;
+            margin-bottom: 5px;
+        }
+        .value {
+            font-size: 18px;
+            color: #111;
+            background-color: #f9f9f9;
+            padding: 10px;
+            border-radius: 5px;
+            border: 1px solid #eee;
+            word-break: break-all;
+        }
+        .loading {
+            color: #888;
+            font-style: italic;
+        }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <h1>🎤 精密ズレ採点</h1>
+    <h1>接続情報</h1>
     
-    <input type="file" id="audio-upload" accept="audio/*">
-    <audio id="player" controls style="width: 100%;"></audio>
+    <div class="info-group">
+        <span class="label">IPアドレス (IPv4/IPv6)</span>
+        <div id="ip" class="value loading">読み込み中...</div>
+    </div>
+    
+    <div class="info-group">
+        <span class="label">国</span>
+        <div id="country" class="value loading">読み込み中...</div>
+    </div>
 
-    <div id="score-container">0</div>
-    <div id="status">音源をアップロードしてください</div>
+    <div class="info-group">
+        <span class="label">都道府県</span>
+        <div id="region" class="value loading">読み込み中...</div>
+    </div>
 
-    <div class="visual-box">
-        <div id="pitch-indicator"></div> <div id="user-pitch"></div>      </div>
-
-    <button id="start-btn">採点モード開始</button>
+    <div class="info-group">
+        <span class="label">市区町村</span>
+        <div id="city" class="value loading">読み込み中...</div>
+    </div>
 </div>
 
 <script>
-    const player = document.getElementById('player');
-    const upload = document.getElementById('audio-upload');
-    const scoreDisp = document.getElementById('score-container');
-    const statusDisp = document.getElementById('status');
-    const userPitchDot = document.getElementById('user-pitch');
-
-    let audioCtx, analyser, micStream;
-    let totalScore = 0;
-    let isScoring = false;
-
-    // 1. ファイル読み込み
-    upload.onchange = (e) => {
-        const file = e.target.files[0];
-        if (file) {
-            player.src = URL.createObjectURL(file);
-            statusDisp.innerText = "準備完了！開始ボタンを押してね";
-        }
-    };
-
-    // 2. ピッチ検出アルゴリズム (Auto-correlation)
-    function autoCorrelate(buffer, sampleRate) {
-        let size = buffer.length;
-        let rms = 0;
-        for (let i = 0; i < size; i++) {
-            rms += buffer[i] * buffer[i];
-        }
-        if (Math.sqrt(rms / size) < 0.01) return -1; // 声が小さい場合は無効
-
-        let r1 = 0, r2 = size - 1, thres = 0.2;
-        for (let i = 0; i < size / 2; i++) {
-            if (Math.abs(buffer[i]) < thres) { r1 = i; break; }
-        }
-        for (let i = 1; i < size / 2; i++) {
-            if (Math.abs(buffer[size - i]) < thres) { r2 = size - i; break; }
-        }
-        
-        buffer = buffer.slice(r1, r2);
-        size = buffer.length;
-
-        let c = new Array(size).fill(0);
-        for (let i = 0; i < size; i++) {
-            for (let j = 0; j < size - i; j++) {
-                c[i] = c[i] + buffer[j] * buffer[j + i];
+    // 無料のAPI（ipapi.co）を使ってIPと位置情報を取得
+    fetch('https://ipapi.co/json/')
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('ネットワークエラーが発生しました。');
             }
-        }
-
-        let d = 0; while (c[d] > c[d + 1]) d++;
-        let maxval = -1, maxpos = -1;
-        for (let i = d; i < size; i++) {
-            if (c[i] > maxval) {
-                maxval = c[i];
-                maxpos = i;
-            }
-        }
-        let T0 = maxpos;
-        return sampleRate / T0;
-    }
-
-    // 3. 採点ループ
-    async function startScoring() {
-        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        const source = audioCtx.createMediaStreamSource(stream);
-        analyser = audioCtx.createAnalyser();
-        analyser.fftSize = 2048;
-        source.connect(analyser);
-
-        const buffer = new Float32Array(analyser.fftSize);
-        isScoring = true;
-
-        function update() {
-            if (!isScoring) return;
-            analyser.getFloatTimeDomainData(buffer);
-            const freq = autoCorrelate(buffer, audioCtx.sampleRate);
-
-            if (!player.paused && freq !== -1) {
-                // 仮のターゲット周波数（ここではA4=440Hz付近を基準とする）
-                // 本来は曲のメロディデータと比較します
-                const targetFreq = 440; 
-                const diff = Math.abs(freq - targetFreq);
-
-                // ズレが少ないほど加点
-                if (diff < 50) {
-                    totalScore += 10;
-                    statusDisp.innerText = "👍 NICE PICTH!";
-                    statusDisp.style.color = "#00ffcc";
-                } else {
-                    statusDisp.innerText = "ズレています！";
-                    statusDisp.style.color = "#ff007b";
-                }
-                
-                // 視覚化（上下に動くドット）
-                const visualPos = Math.min(Math.max(50 + (freq - 440)/10, 0), 100);
-                userPitchDot.style.top = `${visualPos}%`;
-                
-                scoreDisp.innerText = Math.floor(totalScore / 10);
-            } else {
-                statusDisp.innerText = player.paused ? "音楽を再生してください" : "歌ってください！";
-            }
-            requestAnimationFrame(update);
-        }
-        update();
-    }
-
-    document.getElementById('start-btn').onclick = () => {
-        startScoring();
-        document.getElementById('start-btn').disabled = true;
-        document.getElementById('start-btn').innerText = "採点中...";
-    };
+            return response.json();
+        })
+        .then(data => {
+            // 取得したデータをHTMLに反映
+            document.getElementById('ip').textContent = data.ip || '取得失敗';
+            document.getElementById('country').textContent = data.country_name || '取得失敗';
+            document.getElementById('region').textContent = data.region || '取得失敗';
+            document.getElementById('city').textContent = data.city || '取得失敗';
+            
+            // ローディングスタイルの解除
+            document.querySelectorAll('.value').forEach(el => el.classList.remove('loading'));
+        })
+        .catch(error => {
+            console.error('エラー:', error);
+            document.querySelectorAll('.value').forEach(el => {
+                el.textContent = 'エラーが発生しました';
+                el.style.color = 'red';
+            });
+        });
 </script>
 
 </body>
